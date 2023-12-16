@@ -89,7 +89,8 @@ public class Arduino_Com : MonoBehaviour
                 } while (checksumRead < 2);
 
                 // Implicit type of the sum is 4 bytes, so the overflow doesn't occur. Compute manually.
-                if (65536 - (BitConverter.ToUInt16(checksum) + ComputeChecksum(_pageBuffer)) == 0)
+                if ((UInt16.MaxValue + 1) -
+                    (BitConverter.ToUInt16(checksum) + ComputeChecksum(_pageBuffer)) == 0)
                 {
                     // Checksum valid, write it out to the cart.
                     _cart.Write(_pageBuffer);
