@@ -14,6 +14,7 @@ public class Arduino_Com : MonoBehaviour
     {
         Déconnecté,
         Connecté,
+        Connexion,
         Lecture,
         Écriture,
         Invalide
@@ -68,11 +69,21 @@ public class Arduino_Com : MonoBehaviour
         return sum;
     }
 
+    // Core communication function.
+    // Receives all the data from the cartridge and writes it out to the png file.
+    // As the computer will probably read the serial data faster than the Arduino
+    // /and/ the transfer is quite slow (lots of bits, low baudrate), make this a
+    // coroutine.
+    // This prevents the whole application freezing up why waiting for data and
+    // allow presenting visual feedback.
     private IEnumerator<WaitUntil> ReceiveSerialData()
     {
         do
         {
+            // We could use an event instead but as Unity is lagging behind .NET versions,
+            // it wouldn't be cross-platform.
             yield return new WaitUntil(() => _serial.BytesToRead >= 1);
+
             // Read all available data, up to the PageSize.
             throw new NotImplementedException("Update _readBytes, _pageBuffer with serial data.");
 
@@ -106,6 +117,7 @@ public class Arduino_Com : MonoBehaviour
                 _readBytes = 0;
             }
         } while (_currentPage < PageCount);
+
         // We are done receiving the cart, we don't expect more data to be received so the coroutine can return.
         _currentPage = 0;
         _state = ArduinoState.Connecté;
@@ -224,14 +236,7 @@ public class Arduino_Com : MonoBehaviour
                 return;
             }
 
-            // TODO: Wait ~2s for Arduino startup
-            _arduinoControlButton.text = "Déconnecter";
-
-            _cartLoadButton.SetEnabled(true);
-            // _cartWriteButton.SetEnabled(true);  TODO: Not implemented
-            _arduinoSerialPort.SetEnabled(false);
-
-            _state = ArduinoState.Connecté;
+            StartCoroutine(DoSerialConnection());
         }
     }
 
@@ -245,5 +250,25 @@ public class Arduino_Com : MonoBehaviour
         // Might be a slight race condition here if a port is removed in-between updates when clicked, so check anyway.
         _state = SerialPort.GetPortNames().Contains(newPort.newValue) ? ArduinoState.Déconnecté : ArduinoState.Invalide;
         _arduinoControlButton.SetEnabled(_state != ArduinoState.Invalide);
+    }
+
+    // Update UI during connection and when ready, prevent interacting too quickly.
+    IEnumerator<WaitForSeconds> DoSerialConnection()
+    {
+        _arduinoControlButton.text = "Connexion...";
+        _arduinoControlButton.SetEnabled(false);
+        _arduinoSerialPort.SetEnabled(false);
+        _state = ArduinoState.Connexion;
+
+        // Delay enabling transfers because the Arduino is slow to set-up the serial.
+        yield return new WaitForSeconds(1.5f);
+
+        _arduinoControlButton.text = "Déconnecter";
+        _arduinoControlButton.SetEnabled(true);
+
+        _cartLoadButton.SetEnabled(true);
+        // _cartWriteButton.SetEnabled(true);  TODO: Not implemented
+
+        _state = ArduinoState.Connecté;
     }
 }
