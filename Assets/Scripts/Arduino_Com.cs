@@ -32,7 +32,7 @@ public class Arduino_Com : MonoBehaviour
 	private VisualElement _cartImage;
 
 	// ======== IO ========
-	private SerialPort _serial = new();
+	private SafeSerial _serial = new();
 
 	// Probably should be left alone but give the possibility to change it in the inspector.
 	[SerializeField] private int baudrate = 115200;
@@ -83,10 +83,14 @@ public class Arduino_Com : MonoBehaviour
 		do {
 			// We could use an event instead but as Unity is lagging behind .NET versions,
 			// it wouldn't be cross-platform.
-			yield return new WaitUntil(() => _serial.BytesToRead >= 1);
+			yield return new WaitUntil(() => _serial.BytesToRead >= 1 || !_serial.IsOpen);
 
 			// Read all available data, up to the PageSize.
 			throw new NotImplementedException("Update _readBytes, _pageBuffer with serial data.");
+
+			// If we had a communication error and disconnected, abort early.
+			if (!_serial.IsOpen)
+				break;
 
 			// Full page received, check checksum and ACK/NAK, write received page.
 			if (_readBytes >= PageSize) {
@@ -96,7 +100,11 @@ public class Arduino_Com : MonoBehaviour
 				do {
 					throw new NotImplementedException(
 						"Update checksumRead, checksum with serial data. The logic is the same as above.");
-				} while (checksumRead < 2);
+				} while (checksumRead < 2 && _serial.IsOpen);
+
+				// If we had a communication error and disconnected, abort early.
+				if (!_serial.IsOpen)
+					break;
 
 				// Implicit type of the sum is 4 bytes, so the overflow doesn't occur. Compute manually.
 				if ((UInt16.MaxValue + 1) -
@@ -113,7 +121,7 @@ public class Arduino_Com : MonoBehaviour
 
 				_readBytes = 0;
 			}
-		} while (_currentPage < PageCount);
+		} while (_currentPage < PageCount && _serial.IsOpen);
 
 		// We are done receiving the cart, we don't expect more data to be received so the coroutine can return.
 		_currentPage = 0;
@@ -127,7 +135,14 @@ public class Arduino_Com : MonoBehaviour
 
 		_arduinoProgress.visible = false;
 
-		// Update cart image !
+		// If we disconnected and did not properly complete the transmission, abort
+		// and fake a button click to keep the UI in sync with the disconnection.
+		if (!_serial.IsOpen) {
+			OnArduinoButtonClicked();
+			yield break;
+		}
+
+		// We should have received something : update the cart image !
 		var newCartTexture = new Texture2D(2, 2);
 		var textureData = File.ReadAllBytes(_cartPath);
 		newCartTexture.LoadImage(textureData);
@@ -180,8 +195,7 @@ public class Arduino_Com : MonoBehaviour
 		_cartLoadButton.clickable.clicked -= OnLoadButtonClicked;
 		_arduinoSerialPort.UnregisterValueChangedCallback(OnNewSerialPort);
 
-		if (_serial.IsOpen)
-			_serial.Close();
+		_serial.Close();
 		_cart?.Close();
 	}
 
@@ -210,8 +224,7 @@ public class Arduino_Com : MonoBehaviour
 	void OnArduinoButtonClicked()
 	{
 		if (_state == ArduinoState.Connecté) {
-			if (_serial.IsOpen)
-				_serial.Close();
+			_serial.Close();
 			_arduinoControlButton.text = "Connecter";
 
 			_cartLoadButton.SetEnabled(false);
@@ -223,9 +236,8 @@ public class Arduino_Com : MonoBehaviour
 			// Set baudrate again here in case it was changed in the inspector.
 			_serial.BaudRate = baudrate;
 			_serial.PortName = _activeSerialPort;
-			_serial.Open();
-			if (!_serial.IsOpen) {
-				Debug.Log("Failed to connect to serial");
+			if (!_serial.Open()) {
+				Debug.LogWarning("Failed to connect to serial");
 				return;
 			}
 
