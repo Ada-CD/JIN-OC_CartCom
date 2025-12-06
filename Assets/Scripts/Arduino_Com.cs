@@ -206,6 +206,11 @@ public class Arduino_Com : MonoBehaviour
 		_cartLoadButton.SetEnabled(false);
 		_cartWriteButton.SetEnabled(false);
 
+		// Properly reset the transfer status in case we aborted,
+		// as we cannot properly restart anyway.
+		_readBytes = 0;
+		_currentPage = 0;
+
 		_arduinoProgress.visible = true;
 
 		// Clean up eventual previous cartridge.
