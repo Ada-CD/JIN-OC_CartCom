@@ -10,265 +10,258 @@ using UnityEngine.UIElements;
 // the cartridge transfer and related UI interactions.
 public class Arduino_Com : MonoBehaviour
 {
-    private enum ArduinoState
-    {
-        Déconnecté,
-        Connecté,
-        Connexion,
-        Lecture,
-        Écriture,
-        Invalide
-    }
+	private enum ArduinoState
+	{
+		Déconnecté,
+		Connecté,
+		Connexion,
+		Lecture,
+		Écriture,
+		Invalide
+	}
 
-    // ======== UI ========
-    [SerializeField] private UIDocument ui;
-    private DropdownField _arduinoSerialPort;
-    private EnumField _arduinoState;
-    private Button _arduinoControlButton;
-    private ProgressBar _arduinoProgress;
+	// ======== UI ========
+	[SerializeField] private UIDocument ui;
+	private DropdownField _arduinoSerialPort;
+	private EnumField _arduinoState;
+	private Button _arduinoControlButton;
+	private ProgressBar _arduinoProgress;
 
-    private Button _cartLoadButton;
-    private Button _cartWriteButton;
-    private VisualElement _cartImage;
+	private Button _cartLoadButton;
+	private Button _cartWriteButton;
+	private VisualElement _cartImage;
 
-    // ======== IO ========
-    private SerialPort _serial = new ();
-    // Probably should be left alone but give the possibility to change it in the inspector.
-    [SerializeField] private int baudrate = 115200;
-    private string _activeSerialPort;
-    private ArduinoState _state = ArduinoState.Déconnecté;
+	// ======== IO ========
+	private SerialPort _serial = new();
 
-    private string _cartPath;
-    private FileStream _cart;
+	// Probably should be left alone but give the possibility to change it in the inspector.
+	[SerializeField] private int baudrate = 115200;
+	private string _activeSerialPort;
+	private ArduinoState _state = ArduinoState.Déconnecté;
 
-    // ======== Cart transfer ========
-    // Page data corresponding to the EEPROM.
-    private const int PageSize = 0;
-    private const int PageCount = 0;
-    // Page to be written out.
-    private Byte[] _pageBuffer = new byte[PageSize];
-    // Current position in _pageBuffer.
-    private int _readBytes;
-    private int _currentPage;
+	private string _cartPath;
+	private FileStream _cart;
 
-    // Checksum a PageSize bytes page of data by summing it into an unsigned 16 bits int,
-    // to be used either as a verification with a received checksum or to negate and
-    // send as the checksum.
-    private static UInt16 ComputeChecksum(Byte[] data)
-    {
-        if (data.Length != PageSize)
-        {
-            throw new InvalidDataException("Checksum only accepts "+PageSize+" bytes arrays !");
-        }
+	// ======== Cart transfer ========
+	// Page data corresponding to the EEPROM.
+	private const int PageSize = 0;
+	private const int PageCount = 0;
 
-        UInt16 sum = 0;
-        for (var i = 0; i < PageSize; i += 2)
-        {
-            sum += BitConverter.ToUInt16(data, i);
-        }
-        return sum;
-    }
+	// Page to be written out.
+	private Byte[] _pageBuffer = new byte[PageSize];
 
-    // Core communication function.
-    // Receives all the data from the cartridge and writes it out to the png file.
-    // As the computer will probably read the serial data faster than the Arduino
-    // /and/ the transfer is quite slow (lots of bits, low baudrate), make this a
-    // coroutine.
-    // This prevents the whole application freezing up why waiting for data and
-    // allow presenting visual feedback.
-    private IEnumerator<WaitUntil> ReceiveSerialData()
-    {
-        do
-        {
-            // We could use an event instead but as Unity is lagging behind .NET versions,
-            // it wouldn't be cross-platform.
-            yield return new WaitUntil(() => _serial.BytesToRead >= 1);
+	// Current position in _pageBuffer.
+	private int _readBytes;
+	private int _currentPage;
 
-            // Read all available data, up to the PageSize.
-            throw new NotImplementedException("Update _readBytes, _pageBuffer with serial data.");
+	// Checksum a PageSize bytes page of data by summing it into an unsigned 16 bits int,
+	// to be used either as a verification with a received checksum or to negate and
+	// send as the checksum.
+	private static UInt16 ComputeChecksum(Byte[] data)
+	{
+		if (data.Length != PageSize) {
+			throw new InvalidDataException("Checksum only accepts " + PageSize + " bytes arrays !");
+		}
 
-            // Full page received, check checksum and ACK/NAK, write received page.
-            if (_readBytes >= PageSize)
-            {
-                Byte[] checksum = new byte[2];
-                // There might be less than the two characters of the checksum available, loop until complete.
-                var checksumRead = 0;
-                do
-                {
-                    throw new NotImplementedException(
-                        "Update checksumRead, checksum with serial data. The logic is the same as above.");
-                } while (checksumRead < 2);
+		UInt16 sum = 0;
+		for (var i = 0 ; i < PageSize ; i += 2) {
+			sum += BitConverter.ToUInt16(data, i);
+		}
 
-                // Implicit type of the sum is 4 bytes, so the overflow doesn't occur. Compute manually.
-                if ((UInt16.MaxValue + 1) -
-                    (BitConverter.ToUInt16(checksum) + ComputeChecksum(_pageBuffer)) == 0)
-                {
-                    // Checksum valid, write it out to the cart.
-                    _cart.Write(_pageBuffer);
-                    _currentPage += 1;
-                    throw new NotImplementedException("Confirm good reception over serial to continue");
-                }
-                else
-                {
-                    // Checksum invalid, ask for retransmit.
-                    throw new NotImplementedException("Ask for retransmission of the page over serial");
-                    Debug.LogWarningFormat("Page {0} reception failed, asking for retransmit.", _currentPage);
-                }
-                _readBytes = 0;
-            }
-        } while (_currentPage < PageCount);
+		return sum;
+	}
 
-        // We are done receiving the cart, we don't expect more data to be received so the coroutine can return.
-        _currentPage = 0;
-        _state = ArduinoState.Connecté;
-        _cart.Close();
+	// Core communication function.
+	// Receives all the data from the cartridge and writes it out to the png file.
+	// As the computer will probably read the serial data faster than the Arduino
+	// /and/ the transfer is quite slow (lots of bits, low baudrate), make this a
+	// coroutine.
+	// This prevents the whole application freezing up why waiting for data and
+	// allow presenting visual feedback.
+	private IEnumerator<WaitUntil> ReceiveSerialData()
+	{
+		do {
+			// We could use an event instead but as Unity is lagging behind .NET versions,
+			// it wouldn't be cross-platform.
+			yield return new WaitUntil(() => _serial.BytesToRead >= 1);
 
-        // Re-enable buttons now that the transfer is done.
-        _arduinoControlButton.SetEnabled(true);
-        _cartLoadButton.SetEnabled(true);
-        // _cartWriteButton.SetEnabled(true);  TODO: Not implemented
+			// Read all available data, up to the PageSize.
+			throw new NotImplementedException("Update _readBytes, _pageBuffer with serial data.");
 
-        _arduinoProgress.visible = false;
+			// Full page received, check checksum and ACK/NAK, write received page.
+			if (_readBytes >= PageSize) {
+				Byte[] checksum = new byte[2];
+				// There might be less than the two characters of the checksum available, loop until complete.
+				var checksumRead = 0;
+				do {
+					throw new NotImplementedException(
+						"Update checksumRead, checksum with serial data. The logic is the same as above.");
+				} while (checksumRead < 2);
 
-        // Update cart image !
-        var newCartTexture = new Texture2D(2, 2);
-        var textureData = File.ReadAllBytes(_cartPath);
-        newCartTexture.LoadImage(textureData);
-        _cartImage.style.backgroundImage = new StyleBackground(newCartTexture);
-    }
+				// Implicit type of the sum is 4 bytes, so the overflow doesn't occur. Compute manually.
+				if ((UInt16.MaxValue + 1) -
+					(BitConverter.ToUInt16(checksum) + ComputeChecksum(_pageBuffer)) == 0) {
+					// Checksum valid, write it out to the cart.
+					_cart.Write(_pageBuffer);
+					_currentPage += 1;
+					throw new NotImplementedException("Confirm good reception over serial to continue");
+				} else {
+					// Checksum invalid, ask for retransmit.
+					throw new NotImplementedException("Ask for retransmission of the page over serial");
+					Debug.LogWarningFormat("Page {0} reception failed, asking for retransmit.", _currentPage);
+				}
 
-    void Start()
-    {
-        // ======== UI ========
-        var uiRoot = ui.rootVisualElement;
-        _arduinoSerialPort = uiRoot.Query<DropdownField>("Arduino-Serial");
-        _arduinoSerialPort.RegisterValueChangedCallback(OnNewSerialPort);
-        _arduinoSerialPort.choices = new List<string>(SerialPort.GetPortNames());
+				_readBytes = 0;
+			}
+		} while (_currentPage < PageCount);
 
-        _arduinoState = uiRoot.Query<EnumField>("Arduino-State");
+		// We are done receiving the cart, we don't expect more data to be received so the coroutine can return.
+		_currentPage = 0;
+		_state = ArduinoState.Connecté;
+		_cart.Close();
 
-        _arduinoControlButton = uiRoot.Query<Button>("Arduino-Button");
-        _arduinoControlButton.clickable.clicked += OnArduinoButtonClicked;
+		// Re-enable buttons now that the transfer is done.
+		_arduinoControlButton.SetEnabled(true);
+		_cartLoadButton.SetEnabled(true);
+		// _cartWriteButton.SetEnabled(true);  TODO: Not implemented
 
-        _arduinoProgress = uiRoot.Query<ProgressBar>("Arduino-Progress");
-        _arduinoProgress.highValue = PageCount;
+		_arduinoProgress.visible = false;
 
-        _cartLoadButton = uiRoot.Query<Button>("Cart-Load");
-        // Cart buttons can't work if the Arduino is not connected.
-        _cartLoadButton.SetEnabled(false);
-        _cartLoadButton.clickable.clicked += OnLoadButtonClicked;
-        _cartWriteButton = uiRoot.Query<Button>("Cart-Write");
-        _cartWriteButton.SetEnabled(false);
-        _cartImage = uiRoot.Query<VisualElement>("Cart");
+		// Update cart image !
+		var newCartTexture = new Texture2D(2, 2);
+		var textureData = File.ReadAllBytes(_cartPath);
+		newCartTexture.LoadImage(textureData);
+		_cartImage.style.backgroundImage = new StyleBackground(newCartTexture);
+	}
 
-        // ======== IO ========
-        _cartPath = Application.temporaryCachePath + "/cart.png";
-    }
+	void Start()
+	{
+		// ======== UI ========
+		var uiRoot = ui.rootVisualElement;
+		_arduinoSerialPort = uiRoot.Query<DropdownField>("Arduino-Serial");
+		_arduinoSerialPort.RegisterValueChangedCallback(OnNewSerialPort);
+		_arduinoSerialPort.choices = new List<string>(SerialPort.GetPortNames());
 
-    void Update()
-    {
-        // Update the serial ports list so we can detect hot-plugs.
-        _arduinoSerialPort.choices.Clear();
-        _arduinoSerialPort.choices.AddRange(SerialPort.GetPortNames());
+		_arduinoState = uiRoot.Query<EnumField>("Arduino-State");
 
-        // Update state enum and progress bar if active.
-        _arduinoState.value = _state;
-        if (_state is ArduinoState.Lecture or ArduinoState.Écriture)
-            _arduinoProgress.value = _currentPage;
-    }
+		_arduinoControlButton = uiRoot.Query<Button>("Arduino-Button");
+		_arduinoControlButton.clickable.clicked += OnArduinoButtonClicked;
 
-    private void OnDestroy()
-    {
-        _arduinoControlButton.clickable.clicked -= OnArduinoButtonClicked;
-        _cartLoadButton.clickable.clicked -= OnLoadButtonClicked;
-        _arduinoSerialPort.UnregisterValueChangedCallback(OnNewSerialPort);
+		_arduinoProgress = uiRoot.Query<ProgressBar>("Arduino-Progress");
+		_arduinoProgress.highValue = PageCount;
 
-        if (_serial.IsOpen)
-            _serial.Close();
-        _cart?.Close();
-    }
+		_cartLoadButton = uiRoot.Query<Button>("Cart-Load");
+		// Cart buttons can't work if the Arduino is not connected.
+		_cartLoadButton.SetEnabled(false);
+		_cartLoadButton.clickable.clicked += OnLoadButtonClicked;
+		_cartWriteButton = uiRoot.Query<Button>("Cart-Write");
+		_cartWriteButton.SetEnabled(false);
+		_cartImage = uiRoot.Query<VisualElement>("Cart");
 
-    void OnLoadButtonClicked()
-    {
-        // Don't allow arduino actions during load.
-        _arduinoControlButton.SetEnabled(false);
-        _cartLoadButton.SetEnabled(false);
-        _cartWriteButton.SetEnabled(false);
+		// ======== IO ========
+		_cartPath = Application.temporaryCachePath + "/cart.png";
+	}
 
-        _arduinoProgress.visible = true;
+	void Update()
+	{
+		// Update the serial ports list so we can detect hot-plugs.
+		_arduinoSerialPort.choices.Clear();
+		_arduinoSerialPort.choices.AddRange(SerialPort.GetPortNames());
 
-        // Clean up eventual previous cartridge.
-        if (File.Exists(_cartPath))
-            File.Delete(_cartPath);
-        // Open the file, ready for transfers.
-        _cart = File.OpenWrite(_cartPath);
+		// Update state enum and progress bar if active.
+		_arduinoState.value = _state;
+		if (_state is ArduinoState.Lecture or ArduinoState.Écriture)
+			_arduinoProgress.value = _currentPage;
+	}
 
-        // Start listening to incoming data asynchronously.
-        StartCoroutine(ReceiveSerialData());
-        _serial.Write("GO\n");
+	private void OnDestroy()
+	{
+		_arduinoControlButton.clickable.clicked -= OnArduinoButtonClicked;
+		_cartLoadButton.clickable.clicked -= OnLoadButtonClicked;
+		_arduinoSerialPort.UnregisterValueChangedCallback(OnNewSerialPort);
 
-        _state = ArduinoState.Lecture;
-    }
+		if (_serial.IsOpen)
+			_serial.Close();
+		_cart?.Close();
+	}
 
-    void OnArduinoButtonClicked()
-    {
-        if (_state == ArduinoState.Connecté)
-        {
-            if (_serial.IsOpen)
-                _serial.Close();
-            _arduinoControlButton.text = "Connecter";
+	void OnLoadButtonClicked()
+	{
+		// Don't allow arduino actions during load.
+		_arduinoControlButton.SetEnabled(false);
+		_cartLoadButton.SetEnabled(false);
+		_cartWriteButton.SetEnabled(false);
 
-            _cartLoadButton.SetEnabled(false);
-            _cartWriteButton.SetEnabled(false);
-            _arduinoSerialPort.SetEnabled(true);
+		_arduinoProgress.visible = true;
 
-            _state = ArduinoState.Déconnecté;
-        }
-        else if (_state == ArduinoState.Déconnecté)
-        {
-            // Set baudrate again here in case it was changed in the inspector.
-            _serial.BaudRate = baudrate;
-            _serial.PortName = _activeSerialPort;
-            _serial.Open();
-            if (!_serial.IsOpen)
-            {
-                Debug.Log("Failed to connect to serial");
-                return;
-            }
+		// Clean up eventual previous cartridge.
+		if (File.Exists(_cartPath))
+			File.Delete(_cartPath);
+		// Open the file, ready for transfers.
+		_cart = File.OpenWrite(_cartPath);
 
-            StartCoroutine(DoSerialConnection());
-        }
-    }
+		// Start listening to incoming data asynchronously.
+		StartCoroutine(ReceiveSerialData());
+		_serial.Write("GO\n");
 
-    // The serial port should not be changeable when connected.
-    void OnNewSerialPort(ChangeEvent<string> newPort)
-    {
-        if (Equals(newPort.newValue, _activeSerialPort))
-            return;
-        _activeSerialPort = newPort.newValue;
+		_state = ArduinoState.Lecture;
+	}
 
-        // Might be a slight race condition here if a port is removed in-between updates when clicked, so check anyway.
-        _state = SerialPort.GetPortNames().Contains(newPort.newValue) ? ArduinoState.Déconnecté : ArduinoState.Invalide;
-        _arduinoControlButton.SetEnabled(_state != ArduinoState.Invalide);
-    }
+	void OnArduinoButtonClicked()
+	{
+		if (_state == ArduinoState.Connecté) {
+			if (_serial.IsOpen)
+				_serial.Close();
+			_arduinoControlButton.text = "Connecter";
 
-    // Update UI during connection and when ready, prevent interacting too quickly.
-    IEnumerator<WaitForSeconds> DoSerialConnection()
-    {
-        _arduinoControlButton.text = "Connexion...";
-        _arduinoControlButton.SetEnabled(false);
-        _arduinoSerialPort.SetEnabled(false);
-        _state = ArduinoState.Connexion;
+			_cartLoadButton.SetEnabled(false);
+			_cartWriteButton.SetEnabled(false);
+			_arduinoSerialPort.SetEnabled(true);
 
-        // Delay enabling transfers because the Arduino is slow to set-up the serial.
-        yield return new WaitForSeconds(1.5f);
+			_state = ArduinoState.Déconnecté;
+		} else if (_state == ArduinoState.Déconnecté) {
+			// Set baudrate again here in case it was changed in the inspector.
+			_serial.BaudRate = baudrate;
+			_serial.PortName = _activeSerialPort;
+			_serial.Open();
+			if (!_serial.IsOpen) {
+				Debug.Log("Failed to connect to serial");
+				return;
+			}
 
-        _arduinoControlButton.text = "Déconnecter";
-        _arduinoControlButton.SetEnabled(true);
+			StartCoroutine(DoSerialConnection());
+		}
+	}
 
-        _cartLoadButton.SetEnabled(true);
-        // _cartWriteButton.SetEnabled(true);  TODO: Not implemented
+	// The serial port should not be changeable when connected.
+	void OnNewSerialPort(ChangeEvent<string> newPort)
+	{
+		if (Equals(newPort.newValue, _activeSerialPort))
+			return;
+		_activeSerialPort = newPort.newValue;
 
-        _state = ArduinoState.Connecté;
-    }
+		// Might be a slight race condition here if a port is removed in-between updates when clicked, so check anyway.
+		_state = SerialPort.GetPortNames().Contains(newPort.newValue) ? ArduinoState.Déconnecté : ArduinoState.Invalide;
+		_arduinoControlButton.SetEnabled(_state != ArduinoState.Invalide);
+	}
+
+	// Update UI during connection and when ready, prevent interacting too quickly.
+	IEnumerator<WaitForSeconds> DoSerialConnection()
+	{
+		_arduinoControlButton.text = "Connexion...";
+		_arduinoControlButton.SetEnabled(false);
+		_arduinoSerialPort.SetEnabled(false);
+		_state = ArduinoState.Connexion;
+
+		// Delay enabling transfers because the Arduino is slow to set-up the serial.
+		yield return new WaitForSeconds(1.5f);
+
+		_arduinoControlButton.text = "Déconnecter";
+		_arduinoControlButton.SetEnabled(true);
+
+		_cartLoadButton.SetEnabled(true);
+		// _cartWriteButton.SetEnabled(true);  TODO: Not implemented
+
+		_state = ArduinoState.Connecté;
+	}
 }
